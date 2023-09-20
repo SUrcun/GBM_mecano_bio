@@ -1,0 +1,33 @@
+# Compile this form with FFC: ffc -0 -l dolfin Young.ufl
+
+def young_update(wnl_n,young_n):
+	cond1 = conditional(lt(wnl_n,w_crit0+1.5e-8),1.0,0.0)
+	cond2 = conditional(lt(young_n,young_max), cos( 0.5*pi*( (young_n-1000) / (young_max-1000) ) ),0.0)
+	return (cond1*cond2)*young_n
+
+##########################
+
+cell = tetrahedron
+P1 = FiniteElement("Lagrange", cell, 1)
+P2 = VectorElement("Lagrange", cell, 1)
+L4 = MixedElement(P1,P1,P1,P1)
+
+
+dx = Measure('dx')
+dx = dx(metadata={'quadrature_degree': 4})
+
+d_young=TrialFunction(P1)
+wr=TestFunction(P1)
+
+w0 = Coefficient(L4) #previous solution
+pl_n, phl_n, pth_n, wnl_n = split(w0)
+
+
+young_n=Coefficient(P1)
+young_max=Constant(cell)
+w_crit0=Constant(cell)
+
+###################### Weak form
+F=(d_young-(1-(1/young_max)*young_n)*young_update(wnl_n,young_n))*wr*dx
+a, L = lhs(F), rhs(F)
+

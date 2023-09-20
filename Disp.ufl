@@ -1,0 +1,74 @@
+# Compile this form with FFC: 
+# ffc -l dolfin Disp.ufl
+
+
+def epsilon(v):
+    return 0.5*(grad(v) + grad(v).T) 
+
+def lambda_():
+	return (e_young*nu)/((1+nu)*(1-2*nu))
+
+def mu():
+	return (e_young)/(2*(1+nu))
+
+def sigma(u):
+    return lambda_()*tr(epsilon(u))*Identity(3) + 2.0*mu()*epsilon(u)
+
+
+def Sl(phl_n):
+        cond=conditional(lt((2/pi)*atan(phl_n/(a_)),1e-3),1.0,1-(2/pi)*atan(phl_n/(a_)))
+        return cond
+
+def St(pth_n):
+        cond=conditional(lt((2/pi)*atan( (sig_hl/sig_th)*(pth_n/(a_)) ) ,1e-3),0.0, (2/pi)*atan( (sig_hl/sig_th)*(pth_n/(a_)) ) )
+        return cond
+
+def ps(pl_n,phl_n,pth_n):
+    return pl_n+(1-Sl(phl_n))*phl_n+St(pth_n)*pth_n
+ 
+
+##########################
+
+cell = tetrahedron
+P1 = FiniteElement("Lagrange", cell, 1)
+P2 = VectorElement("Lagrange", cell, 1)
+L4 = MixedElement(P1,P1,P1,P1)
+
+
+dx = Measure('dx')
+dx = dx(metadata={'quadrature_degree': 4})
+
+u = TrialFunction(P2)
+v= TestFunction(P2)
+
+
+w = Coefficient(L4)
+d_pl,d_phl,d_pth, d_wnl = split(w)
+
+w0 = Coefficient(L4)
+pl_n, phl_n, pth_n, wnl_n = split(w0)
+
+#################### Parameters
+dT=Constant(cell)
+
+#Poromeca
+e_young = Coefficient(P1)
+nu = Constant(cell)
+a_=Constant(cell)
+sig_hl = Constant(cell)
+sig_th = Constant(cell)
+
+#Function
+u_n = Coefficient(P2)
+
+
+#####################
+# Weak formulation 
+#####################
+
+a = (1/dT)*inner(sigma(u),epsilon(v))*dx
+
+#L = (1/dT)*inner(sigma(u_n),epsilon(v))*dx + (1/dT)*( ps(pl_n,phl_n,pth_n) - ps(old_pl,old_phl,old_pth) )*div(v)*dx
+
+
+

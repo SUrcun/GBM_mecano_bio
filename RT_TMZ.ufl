@@ -1,0 +1,65 @@
+# Compile this form with FFC: ffc -l dolfin RT_TMZ.ufl
+
+def Sl(phl_n):
+        cond=conditional(lt((2/pi)*atan(phl_n/(a_)),1e-3),1.0,1-(2/pi)*atan(phl_n/(a_)))
+        return cond
+
+def St(pth_n):
+        cond=conditional(lt((2/pi)*atan( (sig_hl/sig_th)*(pth_n/(a_)) ) ,1e-3),0.0, (2/pi)*atan( (sig_hl/sig_th)*(pth_n/(a_)) ) )
+        return cond
+
+def Sh(phl_n,pth_n):
+        cond=conditional(lt(1 - Sl(phl_n) - St(pth_n),1e-3),0.0,1 - Sl(phl_n) - St(pth_n))
+        return cond
+
+
+
+# RT-TMZ: vascular dependency
+def short_effect(poro_b):
+	cond = conditional(lt(poro_b,TMZ_t),0.0,0.5-0.5*cos(pi*( (poro_b-TMZ_t)/(poro_b_max-TMZ_t) ) ))
+	return rate_kill*0.3*poro_b*cond#(t_poro+poro_b)#/(t_poro+1)
+
+# RT-TMZ: tumor density dependency
+def RT_effect(phl_n,pth_n):
+	return rate_kill*Sh(phl_n,pth_n)*t_poro
+
+def RT_TMZ(wnecro_n,phl_n,pth_n,poro_b):
+	cond= conditional(lt(St(pth_n),0.0012),0.0,1.0)
+	return gam_tn*(1-wnecro_n)*( short_effect(poro_b) + RT_effect(phl_n,pth_n) )*(1-t_poro*St(pth_n)*mMGMT)*cond 
+
+
+cell = tetrahedron
+P1 = FiniteElement("Lagrange",cell,1)
+ 
+L4 = MixedElement(P1,P1,P1,P1)
+
+dx = Measure('dx')
+dx = dx(metadata={'quadrature_degree': 4})
+
+necro_RT=TrialFunction(P1)
+wn=TestFunction(P1)
+
+w0 = Coefficient(L4)
+pl_n, phl_n, pth_n, wnl_n = split(w0)
+
+wnecro_n = Coefficient(P1)
+poro_b=Coefficient(P1)
+t_poro=Coefficient(P1)
+
+gam_tn=Constant(cell)
+poro_b_max=Constant(cell)
+TMZ_t=Constant(cell)
+rate_kill=Constant(cell)
+mMGMT=Constant(cell)
+sig_hl = Constant(cell)
+sig_th = Constant(cell)
+
+a_=Constant(cell)
+
+######################################
+
+F= ( necro_RT - wnecro_n - RT_TMZ(wnecro_n, phl_n,pth_n,poro_b) )*wn*dx 
+a, L = lhs(F), rhs(F)
+
+
+

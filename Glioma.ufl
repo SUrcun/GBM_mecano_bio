@@ -1,0 +1,192 @@
+# Compile this form with FFC: 
+# ffc -l dolfin Glioma.ufl
+
+def Sl(phl_n):
+        cond=conditional(lt((2/pi)*atan(phl_n/(a_)),1e-3),1.0,1-(2/pi)*atan(phl_n/(a_)))
+        return cond
+
+def St(pth_n):
+        cond=conditional(lt((2/pi)*atan( (sig_hl/sig_th)*(pth_n/(a_)) ) ,1e-3),0.0, (2/pi)*atan( (sig_hl/sig_th)*(pth_n/(a_)) ) )
+        return cond
+
+def Sh(phl_n,pth_n):
+        cond=conditional(lt(1 - Sl(phl_n) - St(pth_n),1e-3),0.0,1 - Sl(phl_n) - St(pth_n))
+        return cond
+
+def dSldphl(phl_n):
+        return -(2/(a_*pi))*( 1/( 1+pow(phl_n/a_,2) ) )
+
+def dStdpth(pth_n):
+        return (2*(a_)*sig_hl*sig_th)/( pi*((a_)*(a_)*sig_th*sig_th + sig_hl*sig_hl*pth_n*pth_n) )
+
+def k_rl(phl_n):
+        cond=conditional(lt(pow(Sl(phl_n),2),1e-3),1e-3 ,pow(Sl(phl_n),2))
+        return cond
+
+def k_rh(phl_n,pth_n):
+        cond=conditional(lt(pow(Sh(phl_n,pth_n),1),1e-3),1e-3 ,pow(Sh(phl_n,pth_n),1))
+        return cond
+
+def k_rt(pth_n):
+        cond=conditional(lt(pow(St(pth_n),1),1e-3),1e-3 ,pow(St(pth_n),1))
+        return cond
+
+# Define TC growth
+def M_l_t_OX(pl_n,phl_n,pth_n,wnl_n):
+        #H1 oxygen dependency
+        cond = conditional(lt(w_crit0,wnl_n),1.0 ,0.0)
+        cond2 = conditional(lt(wnl_n,w_env),0.5-0.5*cos(pi*( (wnl_n-w_crit0)/(w_env-w_crit0) ) ),1.0)
+        #Hp pressure dependency
+        cond3 = conditional(lt(p1,phl_n+pth_n+pl_n),1.0,0.0)
+        cond4 = conditional(lt(phl_n+pth_n+pl_n,(p_crit)),pow(( abs(phl_n+pth_n+pl_n-p1)  / (p_crit-p1)),0.5),1.0)
+        return cond*cond2*(1-cond3*cond4)*St(pth_n)*(1-Sh(phl_n,pth_n))*t_poro
+
+def M_l_t_ANOX(pl_n,phl_n,pth_n,wnl_n):
+		# growth term after phenotype switch: lipid metabolism
+        cond3 = conditional(lt((p1),phl_n+pth_n+pl_n),1.0,0.0)
+        cond4 = conditional(lt(phl_n+pth_n+pl_n,(p_crit)),pow(( abs(phl_n+pth_n+pl_n-p1)  / (p_crit-p1)),0.5),1.0)
+        return (1-cond3*cond4)*St(pth_n)*t_poro
+
+def M_t_s(pl_n,phl_n,pth_n,wnl_n):
+        return gam_ts0*M_l_t_OX(pl_n,phl_n,pth_n,wnl_n)
+
+
+############################ O2 constitutive equations
+
+def D_nl(phl_n):
+	return D_0*pow(t_poro*Sl(phl_n),delta)*diffusion
+
+#Sink
+def M_nl_h(wnl_n,phl_n,pth_n):
+        cond = conditional(lt(wnl_n,w_crit_h),0.0,wnl_n-w_crit_h)
+        cond3 = conditional(lt((p1),phl_n+pl_n),1.0,0.0)
+        cond4 = conditional(lt(phl_n+pl_n,(p_crit)),pow(( abs(phl_n+pl_n-p1)  / (p_crit-p1)),0.5),1.0)
+        return gam_nl_h*cond*(1-cond3*cond4)*t_poro*Sh(phl_n,pth_n)
+def M_nl_t(wnl_n,pth_n):
+        cond = conditional(lt(wnl_n,w_crit0),0.0,wnl_n-w_crit0)
+        cond3 = conditional(lt((p1),phl_n+pth_n+pl_n),1.0,0.0)
+        cond4 = conditional(lt(phl_n+pth_n+pl_n,(p_crit)),pow(( abs(phl_n+pth_n+pl_n-p1)  / (p_crit-p1)),0.5),1.0)
+        return gam_nl_t*cond*(1-cond3*cond4)*t_poro*St(pth_n)
+
+#Source
+def M_b_nl(wnl_n):
+        cond = conditional(lt(w_env,wnl_n),0.0,w_env-wnl_n)
+        return gam_b_nl*(wb*(1-t_poro))*cond
+
+
+def pos(pth_n):
+	cond = conditional(lt(pth_n,0.0),0.0,pth_n)
+	return cond
+
+#ECM remodeling
+def remodel(e_permea,t_wrho):
+	return k_max*t_wrho - e_permea*t_wrho + e_permea
+
+
+##########################
+
+cell = tetrahedron
+P1 = FiniteElement("Lagrange", cell, 1)
+P2 = VectorElement("Lagrange", cell, 1) 
+L4 = MixedElement(P1,P1,P1,P1)
+
+dx = Measure('dx')
+dx = dx(metadata={'quadrature_degree': 4})
+
+dw = TrialFunction(L4)
+ql,qhl,qth, om= TestFunctions(L4)
+
+w = Coefficient(L4) #current solution
+
+w0 = Coefficient(L4) #previous solution
+pl_n, phl_n, pth_n, wnl_n = split(w0)
+
+delta_pl, delta_phl, delta_pth, delta_wnl = split(dw)
+d_pl, d_phl, d_pth, d_wnl = split(w)
+
+
+#################### Parameters
+dT=Constant(cell)
+
+#Poromeca
+mu_t0 = Constant(cell)
+mu_h=Constant(cell)
+a_=Constant(cell)
+p1 =Constant(cell)
+p_crit =Constant(cell)
+sig_hl = Constant(cell)
+sig_th = Constant(cell)
+
+#O2
+w_crit0 =Constant(cell)
+w_crit_h=Constant(cell)
+gam_b_nl=Constant(cell)
+gam_tg0 =Constant(cell)
+gam_nl_h=Constant(cell)
+gam_nl_t=Constant(cell)
+
+#ECM mecano-bio
+gam_rho_mut=Constant(cell)
+gam_rho_tg=Constant(cell)
+gam_ts0=Constant(cell)  
+k_max=Constant(cell)  
+
+#Function
+u = Coefficient(P2)
+u_n = Coefficient(P2)
+e_permea = Coefficient(P1)
+t_poro=Coefficient(P1)
+t_wrho=Coefficient(P1)
+wb=Coefficient(P1)
+wnecro = Coefficient(P1)
+diffusion = Coefficient(P1)
+
+#Fixed
+rho_s = Constant(cell)
+rho_l = Constant(cell)
+rho_h = Constant(cell)
+rho_t = Constant(cell)
+D_0 =Constant(cell)
+delta =Constant(cell)
+mu_l = Constant(cell)
+w_env =Constant(cell)
+
+#####################
+# Weak formulation 
+#####################
+
+#pl
+F = (1/dT)*Sl(phl_n+d_phl)*nabla_div(u-u_n)*ql*dx\
++ ( 1/dT )*t_poro*dSldphl(phl_n+d_phl)*(d_phl)*ql*dx\
++ (1/rho_l)*(1-wnecro)*gam_tg0*M_l_t_OX(pl_n+d_pl,phl_n+d_phl,pos(pth_n)+d_pth,pos(wnl_n)+d_wnl)*ql*dx \
++ (1/rho_l)*t_wrho*gam_rho_tg*(1-wnecro)*gam_tg0*M_l_t_ANOX(pl_n+d_pl,phl_n+d_phl,pos(pth_n)+d_pth,pos(wnl_n)+d_wnl)*ql*dx \
++ k_rl(phl_n+d_phl)*(remodel(e_permea,t_wrho)/(mu_l))*dot(grad(pl_n+d_pl),grad(ql))*dx\
+- Sl(phl_n+d_phl)*(1/rho_s)*(1-t_wrho)*(1-wnecro)*gam_tg0*M_t_s(pl_n+d_pl,phl_n+d_phl,pos(pth_n)+d_pth,pos(wnl_n)+d_wnl)*ql*dx
+
+#phl
+F += (1/dT)*Sh(phl_n+d_phl,pos(pth_n)+d_pth)*nabla_div(u-u_n)*qhl*dx\
+- ( 1/dT )*t_poro*( dSldphl(phl_n+d_phl)*(d_phl) + dStdpth(pos(pth_n)+d_pth)*(d_pth) )*qhl*dx \
++ k_rh(phl_n+d_phl,pos(pth_n)+d_pth)*(remodel(e_permea,t_wrho)/(mu_h))*dot(grad(pl_n+d_pl+phl_n+d_phl),grad(qhl))*dx\
+- Sh(phl_n+d_phl,pos(pth_n)+d_pth)*(1/rho_s)*(1-t_wrho)*(1-wnecro)*gam_tg0*M_t_s(pl_n+d_pl,phl_n+d_phl,pos(pth_n)+d_pth,pos(wnl_n)+d_wnl)*qhl*dx
+
+#pth
+F += (1/dT)*St(pos(pth_n)+d_pth)*nabla_div(u-u_n)*qth*dx\
++ (1/dT)*t_poro*dStdpth(pos(pth_n)+d_pth)*(d_pth)*qth*dx\
+- (1/rho_t)*(1-wnecro)*gam_tg0*M_l_t_OX(pl_n+d_pl,phl_n+d_phl,pos(pth_n)+d_pth,pos(wnl_n)+d_wnl)*qth*dx \
+- (1/rho_t)*t_wrho*gam_rho_tg*(1-wnecro)*gam_tg0*M_l_t_ANOX(pl_n+d_pl,phl_n+d_phl,pos(pth_n)+d_pth,pos(wnl_n)+d_wnl)*qth*dx \
++ k_rt(pos(pth_n)+d_pth)*(remodel(e_permea,t_wrho)/((-gam_rho_mut*t_wrho + 1)*mu_t0))*dot(grad(phl_n+d_phl+pos(pth_n)+d_pth+pl_n+d_pl),grad(qth))*dx\
++ (1/rho_t)*(1-t_wrho)*(1-wnecro)*gam_tg0*M_t_s(pl_n+d_pl,phl_n+d_phl,pos(pth_n)+d_pth,pos(wnl_n)+d_wnl)*qth*dx \
+- St(pos(pth_n)+d_pth)*(1/rho_s)*(1-t_wrho)*(1-wnecro)*gam_tg0*M_t_s(pl_n+d_pl,phl_n+d_phl,pos(pth_n)+d_pth,pos(wnl_n)+d_wnl)*qth*dx
+
+#O2
+F +=(1/dT)*t_poro*Sl(phl_n+d_phl)*(d_wnl)*om*dx\
++ t_poro*Sl(phl_n+d_phl)*D_nl(phl_n+d_phl)*dot(grad(pos(wnl_n)+d_wnl),grad(om) )*dx\
+- k_rl(phl_n+d_phl)*(remodel(e_permea,t_wrho)/(mu_l))*dot(grad(pl_n+d_pl),grad(pos(wnl_n)+d_wnl))*om*dx\
+- (pos(wnl_n)+d_wnl)*( (1-wnecro)*(1/rho_l)*(gam_tg0*M_l_t_OX(pl_n+d_pl,phl_n+d_phl,pos(pth_n)+d_pth,pos(wnl_n)+d_wnl) + t_wrho*gam_rho_tg*gam_tg0*M_l_t_ANOX(pl_n+d_pl,phl_n+d_phl,pos(pth_n)+d_pth,pos(wnl_n)+d_wnl) )- Sl(phl_n+d_phl)*(1/rho_s)*(1-t_wrho)*(1-wnecro)*gam_tg0*M_t_s(pl_n+d_pl,phl_n+d_phl,pos(pth_n)+d_pth,pos(wnl_n)+d_wnl) )*om*dx\
+- (1/rho_l)*M_b_nl(pos(wnl_n)+d_wnl)*om*dx\
++ (1/rho_l)*(1-wnecro)*M_nl_t(pos(wnl_n)+d_wnl,pos(pth_n)+d_wnl)*om*dx\
++ (1/rho_l)*M_nl_h(pos(wnl_n)+d_wnl,phl_n+d_wnl,pos(pth_n)+d_wnl)*om*dx
+
+J  = derivative(F, w, dw)
+
+

@@ -1,0 +1,47 @@
+# Compile this form with FFC: ffc -l dolfin Rho.ufl
+
+def St(pth_n):
+        cond=conditional(lt((2/pi)*atan( (sig_hl/sig_th)*(pth_n/(a_)) ) ,1e-3),0.0, (2/pi)*atan( (sig_hl/sig_th)*(pth_n/(a_)) ) )
+        return cond
+
+def ps(pl_n,phl_n,pth_n):
+	return pl_n + (1-Sl(phl_n))*phl_n + St(pth_n)*pth_n
+
+def phenotype_switch(pl_n,phl_n, pth_n):
+	cond = conditional(lt(pth_n,0.01),0.0,1.0)
+	cond2 = conditional(lt(wnl_n,w_crit0+1.5e-8),1.0,0.0)
+	cond3 = conditional(lt(pl_n+phl_n+pth_n,IDH_threshold),0.0,1.0)
+	return cond*cond2*cond3*(rate_rho*(1-wrho_n)*t_poro*St(pth_n)*(1-wnecro))
+
+cell = tetrahedron
+P1 = FiniteElement("Lagrange", cell, 1)
+P2 = VectorElement("Lagrange", cell, 1)
+L4 = MixedElement(P1,P1,P1,P1)
+
+
+dx = Measure('dx')
+dx = dx(metadata={'quadrature_degree': 4})
+
+
+wrho=TrialFunction(P1)
+wr=TestFunction(P1)
+w0 = Coefficient(L4) #previous solution
+pl_n, phl_n, pth_n, wnl_n = split(w0)
+
+t_poro=Coefficient(P1)
+wrho_n=Coefficient(P1)
+wnecro = Coefficient(P1)
+
+w_crit0=Constant(cell)
+IDH_threshold=Constant(cell)
+rate_rho=Constant(cell)
+sig_hl = Constant(cell)
+sig_th = Constant(cell)
+a_=Constant(cell)
+
+###################### Weak form
+
+F=(wrho-wrho_n-phenotype_switch(pl_n,phl_n,pth_n))*wr*dx
+
+a, L = lhs(F), rhs(F)
+

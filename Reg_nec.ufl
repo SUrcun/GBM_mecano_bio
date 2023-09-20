@@ -1,0 +1,52 @@
+# Compile this form with FFC: 
+# ffc -l dolfin Reg_nec.ufl
+
+def infsup_nec(wnecro_n):
+	cond=conditional(lt(1.0,wnecro_n),1.0/wnecro_n,1.0)
+	cond2=conditional(lt(wnecro_n,0.0),-wnecro_n,wnecro_n)
+	return cond*cond2
+
+def area_nec(pth_n):
+	cond=conditional(lt(pth_n,0.1),0.0,1.0)
+	return cond
+
+##########################
+
+cell = tetrahedron
+P1 = FiniteElement("Lagrange", cell, 1)
+P2 = VectorElement("Lagrange", cell, 1) #1
+L4 = MixedElement(P1,P1,P1,P1)
+
+
+dx = Measure('dx')
+dx = dx(metadata={'quadrature_degree': 4})
+
+
+wnecro_reg = TrialFunction(P1)
+wn= TestFunction(P1)
+
+w0 = Coefficient(L4) #solution to regularize
+pl_n, phl_n, pth_n, wnl_n = split(w0)
+
+
+# Split mixed function
+#delta_pl, delta_phl, delta_pth, delta_wnl = split(dw)
+#d_pl, d_phl, d_pth, d_wnl = split(w_reg)
+
+
+#################### Parameters
+
+wnecro_n=Coefficient(P1)
+
+
+#####################
+# Weak formulation 
+#####################
+
+F = (wnecro_reg - area_nec(pth_n)*infsup_nec(wnecro_n))*wn*dx
+
+a=lhs(F)
+L=rhs(F)
+
+
+

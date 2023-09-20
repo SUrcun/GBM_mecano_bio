@@ -1,0 +1,41 @@
+# Compile this form with FFC: 
+# ffc -l dolfin Glioma.ufl
+
+def St(pth_n):
+        cond=conditional(lt((2/pi)*atan( (54/12)*(pth_n/(550)) ) ,1e-3),0.0, (2/pi)*atan( (54/12)*(pth_n/(550)) ) )
+        return cond
+
+#RT-TMZ: vascular dependency
+def short_effect(poro_b):
+	cond = conditional(lt(poro_b,0.06),0.0,0.5-0.5*cos(pi*( (poro_b-0.06)/(0.65-0.06) ) ))
+	return 0.99*0.3*poro_b*cond
+
+
+def TMZ(pth_n,poro_b):
+	cond= conditional(lt(St(pth_n),0.0012),0.0,1.0)
+	return 0.48*( short_effect(poro_b) )*(1-t_poro*St(pth_n))*cond 
+
+cell = tetrahedron
+P1 = FiniteElement("Lagrange",cell,1)
+L4 = MixedElement(P1,P1,P1,P1)
+
+dx = Measure('dx')
+dx = dx(metadata={'quadrature_degree': 4})
+
+w_reg=TrialFunction(L4)
+ql,qhl,qth_RT,om=TestFunctions(L4)
+pl,phl,pth_RT,wnl = split(w_reg)
+
+w0 = Coefficient(L4)
+pl_n, phl_n, pth_n, wnl_n = split(w0)
+
+poro_b=Coefficient(P1)
+t_poro=Coefficient(P1)
+
+######################################
+
+F= (pth_RT + TMZ(pth_n,poro_b) )*qth_RT*dx + (pl)*ql*dx + (phl)*qhl*dx + (wnl)*om*dx
+
+a, L = lhs(F), rhs(F)
+
+
