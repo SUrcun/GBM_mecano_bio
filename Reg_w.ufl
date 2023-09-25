@@ -1,0 +1,48 @@
+# Compile this form with FFC: 
+# ffc -l dolfin Reg_w.ufl
+
+def pos_pth(pth_n):
+	cond=conditional(lt(pth_n,borne_pth),-pth_n,0.0)
+	return cond
+
+def pos_wnl(wnl_n):
+	cond=conditional(lt(wnl_n,borne_wnl),-wnl_n,0.0)
+	return cond
+
+##########################
+
+cell = tetrahedron
+P1 = FiniteElement("Lagrange", cell, 1)
+P2 = VectorElement("Lagrange", cell, 1) 
+L4 = MixedElement(P1,P1,P1,P1)
+
+
+dx = Measure('dx')
+dx = dx(metadata={'quadrature_degree': 4})
+
+
+w_reg = TrialFunction(L4)
+ql,qhl,qth, om= TestFunctions(L4)
+
+w0 = Coefficient(L4) #solution to regularize
+pl_n, phl_n, pth_n, wnl_n = split(w0)
+
+d_pl, d_phl, d_pth, d_wnl = split(w_reg)
+
+
+#################### Parameters
+
+borne_pth = Constant(cell)
+borne_wnl = Constant(cell)
+
+#####################
+# Weak formulation 
+#####################
+
+F = (d_pl)*ql*dx + (d_phl)*qhl*dx + (d_pth - pos_pth(pth_n))*qth*dx + (d_wnl - pos_wnl(wnl_n))*om*dx
+
+a=lhs(F)
+L=rhs(F)
+
+
+

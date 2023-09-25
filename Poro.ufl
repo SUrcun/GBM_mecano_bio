@@ -1,0 +1,90 @@
+# Compile this form with FFC: ffc -l dolfin Poro.ufl
+
+def Sl(phl_n):
+        cond=conditional(lt((2/pi)*atan(phl_n/(a_)),1e-3),1.0,1-(2/pi)*atan(phl_n/(a_)))
+        return cond
+
+def St(pth_n):
+        cond=conditional(lt((2/pi)*atan( (sig_hl/sig_th)*(pth_n/(a_)) ) ,1e-3),0.0, (2/pi)*atan( (sig_hl/sig_th)*(pth_n/(a_)) ) )
+        return cond
+
+def Sh(phl_n,pth_n):
+        cond=conditional(lt(1 - Sl(phl_n) - St(pth_n),1e-3),0.0,1 - Sl(phl_n) - St(pth_n))
+        return cond
+
+
+
+# Define TC growth
+def M_l_t_OX(pl_n,phl_n,pth_n,wnl_n):
+        #H1 oxygen dependency
+        cond = conditional(lt(w_crit0,wnl_n),1.0 ,0.0)
+        cond2 = conditional(lt(wnl_n,w_env),0.5-0.5*cos(pi*( (wnl_n-w_crit0)/(w_env-w_crit0) ) ),1.0)
+        #cond2 = conditional(lt(wnl_n,w_env),(wnl_n-w_crit0)/(w_env-w_crit0),1.0)
+        #Hp pressure dependency
+        cond3 = conditional(lt(p1,phl_n+pth_n+pl_n),1.0,0.0)
+        cond4 = conditional(lt(phl_n+pth_n+pl_n,(p_crit)),pow(( abs(phl_n+pth_n+pl_n-p1)  / (p_crit-p1)),0.5),1.0)
+        #cond4 = conditional(lt(phl_n+pth_n+pl_n,p_crit),(phl_n+pth_n+pl_n-p1)/(p_crit-p1),1.0)
+        return cond*cond2*(1-cond3*cond4)*St(pth_n)*(1-Sh(phl_n,pth_n))*poro_n
+
+def M_t_s(pl_n,phl_n,pth_n,wnl_n):
+        return gam_ts0*M_l_t_OX(pl_n,phl_n,pth_n,wnl_n)
+
+
+def pos_poro(poro_n):
+	cond= conditional(lt(poro_n,0.1),0.1,poro_n)
+	return cond
+
+##########################
+
+cell = tetrahedron
+P1 = FiniteElement("Lagrange", cell, 1)
+P2 = VectorElement("Lagrange", cell, 1) 
+L4 = MixedElement(P1,P1,P1,P1)
+
+
+dx = Measure('dx')
+dx = dx(metadata={'quadrature_degree': 4})
+
+poro=TrialFunction(P1)
+pr=TestFunction(P1)
+
+
+w = Coefficient(L4) #current solution
+
+w0 = Coefficient(L4) #previous solution
+pl_n, phl_n, pth_n, wnl_n = split(w0)
+
+
+# Split mixed function
+d_pl, d_phl, d_pth, d_wnl = split(w)
+
+poro_n=Coefficient(P1)
+rho_s=Constant(cell)
+
+t_wrho=Coefficient(P1)
+wnecro = Coefficient(P1)
+
+u = Coefficient(P2)
+u_n = Coefficient(P2)
+
+gam_tg0=Constant(cell)
+gam_ts0=Constant(cell)
+w_crit0=Constant(cell)
+w_env=Constant(cell)
+p1=Constant(cell)
+p_crit=Constant(cell)
+sig_hl = Constant(cell)
+sig_th = Constant(cell)
+a_=Constant(cell)
+dT=Constant(cell)
+
+######################################
+#porosity
+
+F4= (1/dT)*(poro*pr*dx - pos_poro(poro_n)*pr*dx) - (1/dT)*(1-poro)*nabla_div(u-u_n)*pr*dx  + (1/rho_s)*((1-t_wrho)*(1-wnecro)*gam_tg0*M_t_s(pl_n+d_pl,phl_n+d_phl,pth_n+d_pth,wnl_n+d_wnl) )*pr*dx
+
+
+##########################
+
+a, L = lhs(F4), rhs(F4)
+
